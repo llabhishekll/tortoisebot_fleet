@@ -1,0 +1,42 @@
+{
+  "name": "lyrical",
+  "image": "ghcr.io/tiryoh/ros2-desktop-vnc:lyrical",
+  "runArgs": [
+    "--shm-size=2g"
+  ],
+  "overrideCommand": false,
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/ubuntu/ros2_ws,type=bind",
+  "workspaceFolder": "/home/ubuntu/ros2_ws",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "installTools": false
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ranch-hand-robotics.rde-ros-2"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "ros.distro": "lyrical"
+      }
+    }
+  },
+  "remoteUser": "ubuntu",
+  "forwardPorts": [
+    80,
+    8000,
+    8080,
+    8765,
+    9090
+  ],
+  "portsAttributes": {
+    "80": {
+      "label": "desktop"
+    }
+  },
+  "postCreateCommand": "bash /home/ubuntu/ros2_ws/.devcontainer/setup.sh"
+}

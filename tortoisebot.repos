@@ -1,0 +1,7 @@
+# Workspace sources cloned into src/.
+# Docker and `just import` both run: vcs import --skip-existing src < tortoisebot.repos
+repositories:
+  tortoisebot:
+    type: git
+    url: https://github.com/llabhishekll/tortoisebot.git
+    version: main

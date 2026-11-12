@@ -1,0 +1,31 @@
+# ENVIRONMENT & CACHES -------------------------------------
+
+.venv/
+.env
+.env.*
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.log
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Imported by vcs (tortoisebot.repos)
+src/*
+!src/.gitkeep
+
+# COLCON ---------------------------------------------------
+
+build/
+install/
+log/
+
+# REFERENCE DUMPS ------------------------------------------
+
+dist/

@@ -1,0 +1,33 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Validate Compose files
+        run: |
+          docker compose --profile sim config --quiet
+          docker compose --profile real config --quiet
+
+      - name: Validate Ansible playbook
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible-core
+          ansible-playbook ansible.yaml --syntax-check

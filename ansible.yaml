@@ -1,0 +1,256 @@
+#-------------------------------------------------------------------------------
+# INSTALL (ansible.yaml)
+#-------------------------------------------------------------------------------
+# Installs one route and stops. Does not start Compose or ros2 launch.
+# Clones main into ~/tortoisebot_fleet on the target, so this file can run
+# from a laptop or from a raw download on the machine itself.
+#
+#   ansible-playbook ansible.yaml -e host=tortoisebot.local -e user=ubuntu
+#   ansible-playbook ansible.yaml -e host=localhost -e route=ros2
+#
+# host    SSH target (ROBOT_HOST, else tortoisebot.local). localhost = this machine.
+# user    SSH user (ROBOT_USER, else ubuntu). Unused for localhost.
+# route   docker (default) or ros2. Env: ROUTE.
+#
+# docker  Engine, Compose plugin, service enabled, login user in the docker group.
+# ros2    Ubuntu 26.04. Lyrical ros-base, colcon build, sourced from ~/.bashrc.
+#
+# This file alone: sudo apt install -y ansible && curl -fsSL -o ansible.yaml \
+#   https://raw.githubusercontent.com/llabhishekll/tortoisebot_fleet/main/ansible.yaml
+# --ask-become-pass when sudo needs a password.
+#-------------------------------------------------------------------------------
+
+- name: Register install target
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    target_host: "{{ host | default(lookup('env', 'ROBOT_HOST') | default('tortoisebot.local', true), true) }}"
+    target_user: "{{ user | default(lookup('env', 'ROBOT_USER') | default('ubuntu', true), true) }}"
+    install_route: "{{ route | default(lookup('env', 'ROUTE') | default('docker', true), true) | lower }}"
+  tasks:
+    - name: Require route=docker or route=ros2
+      ansible.builtin.assert:
+        that:
+          - install_route in ['docker', 'ros2']
+        fail_msg: route must be docker (default) or ros2.
+
+    - name: Add this machine
+      when: target_host | lower == 'localhost'
+      ansible.builtin.add_host:
+        name: tortoisebot
+        groups: tortoisebot
+        ansible_connection: local
+        ansible_python_interpreter: auto_silent
+
+    - name: Add remote machine
+      when: target_host | lower != 'localhost'
+      ansible.builtin.add_host:
+        name: tortoisebot
+        groups: tortoisebot
+        ansible_host: "{{ target_host }}"
+        ansible_user: "{{ target_user }}"
+        ansible_python_interpreter: auto_silent
+        ansible_ssh_extra_args: "-o ServerAliveInterval=30"
+
+- name: Install TortoiseBot
+  hosts: tortoisebot
+  gather_facts: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  vars:
+    install_route: "{{ route | default(lookup('env', 'ROUTE') | default('docker', true), true) | lower }}"
+    fleet_repo: https://github.com/llabhishekll/tortoisebot_fleet.git
+    fleet_version: main
+  tasks:
+    - name: This playbook installs with apt
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == 'Debian'
+        fail_msg: "This playbook installs with apt. This machine is {{ ansible_os_family }}."
+
+    - name: ROS 2 Lyrical is packaged for Ubuntu 26.04
+      when: install_route == 'ros2'
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_distribution_version is version('26.04', '>=')
+        fail_msg: >-
+          route=ros2 expects Ubuntu 26.04.
+          This machine is {{ ansible_distribution }} {{ ansible_distribution_version }}.
+
+    - name: Resolve workspace path
+      ansible.builtin.set_fact:
+        workspace: "{{ ansible_env.HOME }}/tortoisebot_fleet"
+
+    - name: Install git
+      become: true
+      ansible.builtin.apt:
+        name: git
+        state: present
+        update_cache: true
+
+    - name: Stat workspace directory
+      ansible.builtin.stat:
+        path: "{{ workspace }}"
+      register: workspace_dir
+
+    - name: Stat workspace git metadata
+      ansible.builtin.stat:
+        path: "{{ workspace }}/.git"
+      register: workspace_git
+
+    - name: Existing workspace must already be a clone
+      when: workspace_dir.stat.exists and not workspace_git.stat.exists
+      ansible.builtin.fail:
+        msg: "{{ workspace }} exists and is not a git clone. Move it aside, then rerun."
+
+    - name: Clone fleet workspace
+      ansible.builtin.git:
+        repo: "{{ fleet_repo }}"
+        dest: "{{ workspace }}"
+        version: "{{ fleet_version }}"
+        update: true
+
+    - name: Install Docker
+      when: install_route == 'docker'
+      become: true
+      block:
+        - name: Install Docker and Compose
+          ansible.builtin.apt:
+            name:
+              - docker.io
+              - docker-compose-v2
+            state: present
+            update_cache: true
+
+        - name: Start Docker
+          ansible.builtin.service:
+            name: docker
+            state: started
+            enabled: true
+
+        - name: Add the login user to the docker group
+          ansible.builtin.user:
+            name: "{{ ansible_user_id }}"
+            groups: docker
+            append: true
+
+    - name: Install ROS 2 workspace
+      when: install_route == 'ros2'
+      block:
+        - name: Install locale and repository tools
+          become: true
+          ansible.builtin.apt:
+            name:
+              - locales
+              - software-properties-common
+              - curl
+              - ca-certificates
+            state: present
+            update_cache: true
+
+        - name: List generated locales
+          ansible.builtin.command: locale -a
+          register: locales
+          changed_when: false
+
+        - name: Generate en_US.UTF-8
+          when: locales.stdout | lower is not search('en_us.utf-8')
+          become: true
+          ansible.builtin.command: locale-gen en_US.UTF-8
+
+        - name: Set the default locale
+          become: true
+          ansible.builtin.command: update-locale LANG=en_US.UTF-8
+          changed_when: false
+
+        - name: Enable the Ubuntu universe repository
+          become: true
+          ansible.builtin.command: add-apt-repository -y universe
+          changed_when: false
+
+        - name: Check for the ROS apt source
+          become: true
+          ansible.builtin.command: dpkg-query -W -f=${Status} ros2-apt-source
+          register: ros_apt_pkg
+          changed_when: false
+          failed_when: false
+
+        - name: Install the ROS apt source
+          when: ros_apt_pkg.rc != 0 or 'installed' not in ros_apt_pkg.stdout
+          become: true
+          ansible.builtin.shell: |
+            set -euo pipefail
+            ROS_APT_SOURCE_VERSION=$(curl -fsSL https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F'"' '{print $4}')
+            test -n "${ROS_APT_SOURCE_VERSION}"
+            . /etc/os-release
+            codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"
+            curl -fL -o /tmp/ros2-apt-source.deb \
+              "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.${codename}_all.deb"
+            dpkg -i /tmp/ros2-apt-source.deb
+            rm -f /tmp/ros2-apt-source.deb
+          args:
+            executable: /bin/bash
+
+        - name: Install ROS 2 Lyrical and build tools
+          become: true
+          ansible.builtin.apt:
+            name:
+              - ros-lyrical-ros-base
+              - python3-colcon-common-extensions
+              - python3-rosdep
+              - python3-vcstool
+              - python3-argcomplete
+              - build-essential
+              - cmake
+            state: present
+            update_cache: true
+
+        - name: Initialize rosdep
+          become: true
+          ansible.builtin.command: rosdep init
+          args:
+            creates: /etc/ros/rosdep/sources.list.d/20-default.list
+
+        - name: Import tortoisebot sources
+          ansible.builtin.shell: |
+            set -eo pipefail
+            mkdir -p src
+            vcs import --skip-existing src < tortoisebot.repos
+          args:
+            chdir: "{{ workspace }}"
+            executable: /bin/bash
+
+        - name: Install workspace dependencies
+          become: true
+          ansible.builtin.shell: |
+            set -eo pipefail
+            source /opt/ros/lyrical/setup.bash
+            rosdep update --rosdistro lyrical
+            rosdep install --from-paths src --ignore-src --rosdistro lyrical -y --skip-keys ament_python
+          args:
+            chdir: "{{ workspace }}"
+            executable: /bin/bash
+
+        - name: Build the workspace
+          ansible.builtin.shell: |
+            set -eo pipefail
+            source /opt/ros/lyrical/setup.bash
+            colcon build --symlink-install --metas colcon.meta
+          args:
+            chdir: "{{ workspace }}"
+            executable: /bin/bash
+
+        - name: Source ROS 2 and the workspace from bashrc
+          ansible.builtin.blockinfile:
+            path: "{{ ansible_env.HOME }}/.bashrc"
+            create: true
+            mode: "0644"
+            marker: "# {mark} TORTOISEBOT"
+            block: |
+              source /opt/ros/lyrical/setup.bash
+              if [ -f {{ workspace }}/install/setup.bash ]; then
+                source {{ workspace }}/install/setup.bash
+              fi
+              export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"

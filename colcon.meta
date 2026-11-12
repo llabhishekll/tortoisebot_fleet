@@ -1,0 +1,19 @@
+# Hide CMake configure noise from vendored packages.
+# Compiler warnings are suppressed in each vendor CMakeLists (-w).
+names:
+  ydlidar_sdk:
+    cmake-args:
+      - -Wno-dev
+      - -Wno-deprecated
+  ydlidar_ros2_driver:
+    cmake-args:
+      - -Wno-dev
+      - -Wno-deprecated
+  cartographer:
+    cmake-args:
+      - -Wno-dev
+      - -Wno-deprecated
+  cartographer_ros:
+    cmake-args:
+      - -Wno-dev
+      - -Wno-deprecated

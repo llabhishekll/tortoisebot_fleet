@@ -1,0 +1,40 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Parse Tag Message
+        id: parse_tag
+        run: |
+          TAG_MSG=$(git tag -l --format='%(contents)' "${{ github.ref_name }}")
+          BODY=$(echo "$TAG_MSG" | tail -n +3)
+          EOF_MARKER=$(cat /proc/sys/kernel/random/uuid)
+          echo "body<<$EOF_MARKER" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "$EOF_MARKER" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          body: ${{ steps.parse_tag.outputs.body }}

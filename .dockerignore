@@ -1,0 +1,35 @@
+# VCS & CI -------------------------------------------------
+
+.git
+**/.git
+.github/
+.gitignore
+.gitattributes
+
+# ENVIRONMENT & CACHES -------------------------------------
+
+.venv/
+.env
+.env.*
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+**/.DS_Store
+.vscode/
+.idea/
+
+# NOT IN THE IMAGE -----------------------------------------
+
+build/
+install/
+log/
+docs/
+justfile
+Justfile
+pyproject.toml
+uv.lock
+compose.yaml
+ansible.yaml

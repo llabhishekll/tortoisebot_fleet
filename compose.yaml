@@ -1,0 +1,128 @@
+#-------------------------------------------------------------------------------
+# COMPOSE STACK (compose.yaml)
+#-------------------------------------------------------------------------------
+# Bringup + Cartographer only. Nav2, waypoints, and intelligence are a
+# shell on the bringup service, then ros2 launch from tortoisebot.
+#
+# Profiles
+#   sim  — Gazebo bringup + slam (RViz on slam)
+#   real — Pi bringup + slam (privileged, devices, no RViz on slam)
+#
+#   docker compose --profile sim up --build
+#   docker compose --profile real up --build
+#   just sim | just real
+#
+# Image: tortoisebot:lyrical (Dockerfile). Laptop display: xhost +local:docker
+#
+# Maps are mounted on the navigation package maps/ directory that save_map
+# and Nav2 already use. `compose down` keeps the volume. `compose down -v`
+# deletes it.
+#-------------------------------------------------------------------------------
+
+name: tortoisebot
+
+x-image: &image tortoisebot:lyrical
+
+x-build: &build
+  context: .
+  dockerfile: Dockerfile
+
+services:
+  # ---- sim ------------------------------------------------
+  bringup_sim:
+    profiles: ["sim"]
+    build: *build
+    image: *image
+    network_mode: host
+    ipc: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - tortoisebot_maps_sim:/ros2_ws/install/tortoisebot_navigation/share/tortoisebot_navigation/maps
+    command:
+      - ros2
+      - launch
+      - tortoisebot_bringup
+      - bringup.launch.py
+      - use_sim_time:=True
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+
+  slam_sim:
+    profiles: ["sim"]
+    image: *image
+    network_mode: host
+    ipc: host
+    depends_on:
+      - bringup_sim
+    environment:
+      - ROS_DOMAIN_ID=0
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - tortoisebot_maps_sim:/ros2_ws/install/tortoisebot_navigation/share/tortoisebot_navigation/maps
+    command:
+      - bash
+      - -c
+      - sleep 8 && ros2 launch tortoisebot_slam cartographer_slam.launch.py use_sim_time:=True display_rviz:=True
+    tty: true
+    restart: unless-stopped
+
+  # ---- real -----------------------------------------------
+  bringup_real:
+    profiles: ["real"]
+    build: *build
+    image: *image
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - /dev/input:/dev/input
+      - /dev/video0:/dev/video0
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/gpiomem:/dev/gpiomem
+      - /run/udev:/run/udev:ro
+      - tortoisebot_maps_real:/ros2_ws/install/tortoisebot_navigation/share/tortoisebot_navigation/maps
+    device_cgroup_rules:
+      - "c 13:* rmw"
+      - "c 81:* rmw"
+      - "c 188:* rmw"
+      - "c 239:* rmw"
+    command:
+      - ros2
+      - launch
+      - tortoisebot_bringup
+      - bringup.launch.py
+      - use_sim_time:=False
+    tty: true
+    restart: unless-stopped
+
+  slam_real:
+    profiles: ["real"]
+    image: *image
+    network_mode: host
+    ipc: host
+    privileged: true
+    depends_on:
+      - bringup_real
+    environment:
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - tortoisebot_maps_real:/ros2_ws/install/tortoisebot_navigation/share/tortoisebot_navigation/maps
+    command:
+      - bash
+      - -c
+      - sleep 8 && ros2 launch tortoisebot_slam cartographer_slam.launch.py use_sim_time:=False display_rviz:=False
+    tty: true
+    restart: unless-stopped
+
+volumes:
+  tortoisebot_maps_sim:
+  tortoisebot_maps_real:

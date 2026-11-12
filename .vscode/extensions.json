@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "charliermarsh.ruff",
+    "ranch-hand-robotics.rde-ros-2",
+    "ms-azuretools.vscode-docker",
+    "redhat.vscode-yaml",
+    "nefrob.vscode-just-syntax"
+  ]
+}
